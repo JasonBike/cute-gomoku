@@ -37,6 +37,7 @@ type move struct {
 
 type player struct {
 	Token     string
+	UserID    string
 	Name      string
 	Color     int
 	Connected bool
@@ -64,6 +65,7 @@ type Server struct {
 	webFS    fs.FS
 	roomsMu  sync.RWMutex
 	rooms    map[string]*room
+	identity *identityStore
 	upgrader websocket.Upgrader
 }
 
@@ -146,9 +148,22 @@ var allowedChatMessages = map[string]struct{}{
 }
 
 func NewServer(webFS fs.FS) http.Handler {
+	handler, err := NewServerWithDataFile(webFS, "")
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+func NewServerWithDataFile(webFS fs.FS, dataPath string) (http.Handler, error) {
+	identity, err := newIdentityStore(dataPath)
+	if err != nil {
+		return nil, err
+	}
 	server := &Server{
-		webFS: webFS,
-		rooms: make(map[string]*room),
+		webFS:    webFS,
+		rooms:    make(map[string]*room),
+		identity: identity,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -167,13 +182,15 @@ func NewServer(webFS fs.FS) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
+	mux.HandleFunc("GET /api/session", server.session)
+	mux.HandleFunc("PATCH /api/me", server.updateProfile)
 	mux.HandleFunc("GET /api/rooms", server.listRooms)
 	mux.HandleFunc("POST /api/rooms", server.createRoom)
 	mux.HandleFunc("POST /api/rooms/{code}/join", server.joinRoom)
 	mux.HandleFunc("GET /ws", server.serveWebSocket)
 	mux.Handle("GET /assets/", immutableAssets(http.FileServer(http.FS(webFS))))
 	mux.HandleFunc("GET /", server.serveIndex)
-	return securityHeaders(mux)
+	return securityHeaders(mux), nil
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -194,6 +211,45 @@ func immutableAssets(next http.Handler) http.Handler {
 
 func (server *Server) health(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (server *Server) session(response http.ResponseWriter, request *http.Request) {
+	session, err := server.identity.getOrCreateSession(response, request)
+	if err != nil {
+		log.Printf("create session failed: %v", err)
+		writeAPIError(response, http.StatusInternalServerError, "session_unavailable", "暂时无法创建棋手身份")
+		return
+	}
+	writeJSON(response, http.StatusOK, session)
+}
+
+func (server *Server) updateProfile(response http.ResponseWriter, request *http.Request) {
+	var body updateProfileRequest
+	if err := decodeJSON(request, &body); err != nil {
+		writeAPIError(response, http.StatusBadRequest, "invalid_request", "请求内容不正确")
+		return
+	}
+	body.Nickname = strings.TrimSpace(body.Nickname)
+	nicknameLength := len([]rune(body.Nickname))
+	if nicknameLength < 1 || nicknameLength > 12 {
+		writeAPIError(response, http.StatusBadRequest, "invalid_nickname", "昵称需要在 1 到 12 个字之间")
+		return
+	}
+
+	session, err := server.identity.getOrCreateSession(response, request)
+	if err != nil {
+		log.Printf("resolve profile session failed: %v", err)
+		writeAPIError(response, http.StatusInternalServerError, "session_unavailable", "暂时无法识别棋手身份")
+		return
+	}
+	user, err := server.identity.updateNickname(session.User.ID, body.Nickname)
+	if err != nil {
+		log.Printf("save profile failed: %v", err)
+		writeAPIError(response, http.StatusInternalServerError, "profile_save_failed", "昵称保存失败，请稍后重试")
+		return
+	}
+	server.updateRoomPlayerNames(user.ID, user.Nickname)
+	writeJSON(response, http.StatusOK, sessionResponse{User: user, ExpiresAt: session.ExpiresAt})
 }
 
 func (server *Server) serveIndex(response http.ResponseWriter, request *http.Request) {
@@ -221,7 +277,12 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 		writeAPIError(response, http.StatusBadRequest, "invalid_request", "请求内容不正确")
 		return
 	}
-	body.Name = normalizeName(body.Name)
+	session, err := server.identity.getOrCreateSession(response, request)
+	if err != nil {
+		log.Printf("resolve room creator failed: %v", err)
+		writeAPIError(response, http.StatusInternalServerError, "session_unavailable", "暂时无法识别棋手身份")
+		return
+	}
 
 	code, err := server.newRoomCode()
 	if err != nil {
@@ -243,7 +304,12 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	gameRoom.Players[token] = &player{Token: token, Name: body.Name, Color: 1}
+	gameRoom.Players[token] = &player{
+		Token:  token,
+		UserID: session.User.ID,
+		Name:   session.User.Nickname,
+		Color:  1,
+	}
 
 	server.roomsMu.Lock()
 	server.rooms[code] = gameRoom
@@ -273,10 +339,10 @@ func (server *Server) listRooms(response http.ResponseWriter, _ *http.Request) {
 				RoomCode:       gameRoom.Code,
 				HostName:       hostName,
 				Status:         gameRoom.Status,
-				PlayerCount:    len(gameRoom.Players),
+				PlayerCount:    connectedCount,
 				ConnectedCount: connectedCount,
 				MoveCount:      len(gameRoom.Moves),
-				Joinable:       gameRoom.Status == "waiting" && len(gameRoom.Players) < 2,
+				Joinable:       roomJoinable(gameRoom),
 				CreatedAt:      gameRoom.CreatedAt.UnixMilli(),
 			})
 		}
@@ -306,7 +372,12 @@ func (server *Server) joinRoom(response http.ResponseWriter, request *http.Reque
 		writeAPIError(response, http.StatusBadRequest, "invalid_request", "请求内容不正确")
 		return
 	}
-	body.Name = normalizeName(body.Name)
+	session, err := server.identity.getOrCreateSession(response, request)
+	if err != nil {
+		log.Printf("resolve joining player failed: %v", err)
+		writeAPIError(response, http.StatusInternalServerError, "session_unavailable", "暂时无法识别棋手身份")
+		return
+	}
 
 	gameRoom.mu.Lock()
 	defer gameRoom.mu.Unlock()
@@ -319,12 +390,14 @@ func (server *Server) joinRoom(response http.ResponseWriter, request *http.Reque
 		})
 		return
 	}
-	if len(gameRoom.Players) >= 2 {
-		writeAPIError(response, http.StatusConflict, "room_full", "这个房间已经坐满了")
+
+	joiningFinishedRoom := gameRoom.Status == "finished" && connectedPlayerCount(gameRoom) == 1
+	if gameRoom.Status != "waiting" && !joiningFinishedRoom {
+		writeAPIError(response, http.StatusConflict, "game_started", "棋局已经开始")
 		return
 	}
-	if gameRoom.Status != "waiting" {
-		writeAPIError(response, http.StatusConflict, "game_started", "棋局已经开始")
+	if gameRoom.Status == "waiting" && len(gameRoom.Players) >= 2 {
+		writeAPIError(response, http.StatusConflict, "room_full", "这个房间已经坐满了")
 		return
 	}
 
@@ -333,9 +406,29 @@ func (server *Server) joinRoom(response http.ResponseWriter, request *http.Reque
 		writeAPIError(response, http.StatusInternalServerError, "token_generation_failed", "暂时无法加入房间")
 		return
 	}
-	gameRoom.Players[token] = &player{Token: token, Name: body.Name, Color: 2}
+	color := 2
+	if joiningFinishedRoom {
+		for oldToken, roomPlayer := range gameRoom.Players {
+			if roomPlayer.Connected {
+				color = oppositeColor(roomPlayer.Color)
+				continue
+			}
+			color = roomPlayer.Color
+			delete(gameRoom.Players, oldToken)
+		}
+		resetRoomToWaitingLocked(gameRoom)
+	}
+	gameRoom.Players[token] = &player{
+		Token:  token,
+		UserID: session.User.ID,
+		Name:   session.User.Nickname,
+		Color:  color,
+	}
 	gameRoom.UpdatedAt = time.Now()
-	writeJSON(response, http.StatusOK, roomResponse{RoomCode: code, PlayerToken: token, Color: 2})
+	if joiningFinishedRoom {
+		server.broadcastLocked(gameRoom)
+	}
+	writeJSON(response, http.StatusOK, roomResponse{RoomCode: code, PlayerToken: token, Color: color})
 }
 
 func (server *Server) serveWebSocket(response http.ResponseWriter, request *http.Request) {
@@ -572,13 +665,18 @@ func validateMove(gameRoom *room, currentPlayer *player, row, column int) (strin
 }
 
 func resetRoomLocked(gameRoom *room) {
+	resetRoomToWaitingLocked(gameRoom)
+	gameRoom.Status = "playing"
+}
+
+func resetRoomToWaitingLocked(gameRoom *room) {
 	gameRoom.Board = [boardSize][boardSize]int{}
 	gameRoom.Moves = make([]move, 0)
 	gameRoom.WinningLine = nil
 	gameRoom.Turn = 1
 	gameRoom.Winner = 0
 	gameRoom.UndoRequester = 0
-	gameRoom.Status = "playing"
+	gameRoom.Status = "waiting"
 	for _, roomPlayer := range gameRoom.Players {
 		roomPlayer.Rematch = false
 	}
@@ -663,6 +761,26 @@ func (server *Server) getRoom(code string) *room {
 	server.roomsMu.RLock()
 	defer server.roomsMu.RUnlock()
 	return server.rooms[code]
+}
+
+func (server *Server) updateRoomPlayerNames(userID, nickname string) {
+	server.roomsMu.RLock()
+	defer server.roomsMu.RUnlock()
+	for _, gameRoom := range server.rooms {
+		gameRoom.mu.Lock()
+		changed := false
+		for _, roomPlayer := range gameRoom.Players {
+			if roomPlayer.UserID == userID && roomPlayer.Name != nickname {
+				roomPlayer.Name = nickname
+				changed = true
+			}
+		}
+		if changed {
+			gameRoom.UpdatedAt = time.Now()
+			server.broadcastLocked(gameRoom)
+		}
+		gameRoom.mu.Unlock()
+	}
 }
 
 func (server *Server) newRoomCode() (string, error) {
@@ -758,6 +876,23 @@ func bothPlayersConnected(gameRoom *room) bool {
 		}
 	}
 	return true
+}
+
+func connectedPlayerCount(gameRoom *room) int {
+	count := 0
+	for _, roomPlayer := range gameRoom.Players {
+		if roomPlayer.Connected {
+			count++
+		}
+	}
+	return count
+}
+
+func roomJoinable(gameRoom *room) bool {
+	if gameRoom.Status == "waiting" {
+		return len(gameRoom.Players) < 2
+	}
+	return gameRoom.Status == "finished" && connectedPlayerCount(gameRoom) == 1
 }
 
 func bothPlayersWantRematch(gameRoom *room) bool {

@@ -201,7 +201,7 @@ func TestRoomListOnlyShowsConnectedRooms(t *testing.T) {
 	if len(rooms) != 1 {
 		t.Fatalf("listed rooms = %d, want 1", len(rooms))
 	}
-	if rooms[0].RoomCode != creator.RoomCode || rooms[0].HostName != "大厅房主" ||
+	if rooms[0].RoomCode != creator.RoomCode || rooms[0].HostName == "" ||
 		!rooms[0].Joinable || rooms[0].PlayerCount != 1 || rooms[0].ConnectedCount != 1 {
 		t.Fatalf("unexpected waiting room summary: %#v", rooms[0])
 	}
@@ -222,6 +222,71 @@ func TestRoomListOnlyShowsConnectedRooms(t *testing.T) {
 	if len(rooms) != 1 || rooms[0].Status != "playing" || rooms[0].Joinable ||
 		rooms[0].PlayerCount != 2 || rooms[0].ConnectedCount != 2 {
 		t.Fatalf("unexpected playing room summary: %#v", rooms)
+	}
+}
+
+func TestFinishedRoomWithOneConnectedPlayerCanBeJoined(t *testing.T) {
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
+	defer testServer.Close()
+
+	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"留在房间的人"}`)
+	black := dialRoom(t, testServer.URL, creator.RoomCode, creator.PlayerToken)
+	defer black.Close()
+	_ = readState(t, black)
+
+	guest := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"离开的人"}`,
+	)
+	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	if err := white.WriteJSON(clientMessage{Type: "resign"}); err != nil {
+		t.Fatal(err)
+	}
+	if state := readState(t, black); state.Status != "finished" {
+		t.Fatalf("black finished state = %#v", state)
+	}
+	if state := readState(t, white); state.Status != "finished" {
+		t.Fatalf("white finished state = %#v", state)
+	}
+	_ = white.Close()
+	if state := readState(t, black); state.Status != "finished" {
+		t.Fatalf("disconnect state = %#v", state)
+	}
+
+	rooms := requestRoomList(t, testServer.URL)
+	if len(rooms) != 1 || rooms[0].Status != "finished" || !rooms[0].Joinable ||
+		rooms[0].PlayerCount != 1 || rooms[0].ConnectedCount != 1 {
+		t.Fatalf("unexpected joinable finished room: %#v", rooms)
+	}
+
+	replacement := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"新棋友"}`,
+	)
+	if replacement.Color != 2 {
+		t.Fatalf("replacement color = %d, want 2", replacement.Color)
+	}
+	waiting := readState(t, black)
+	if waiting.Status != "waiting" || len(waiting.Moves) != 0 || waiting.Winner != 0 {
+		t.Fatalf("room was not reset while replacement connected: %#v", waiting)
+	}
+
+	newWhite := dialRoom(t, testServer.URL, creator.RoomCode, replacement.PlayerToken)
+	defer newWhite.Close()
+	if state := readState(t, black); state.Status != "playing" || len(state.Moves) != 0 {
+		t.Fatalf("black replacement state = %#v", state)
+	}
+	if state := readState(t, newWhite); state.Status != "playing" || len(state.Moves) != 0 {
+		t.Fatalf("white replacement state = %#v", state)
 	}
 }
 
@@ -247,6 +312,7 @@ func TestWebSocketGameFlow(t *testing.T) {
 	if firstState.Moves == nil {
 		t.Fatal("empty moves must be encoded as [] instead of null")
 	}
+	blackName := playerName(firstState, 1)
 
 	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
 	defer white.Close()
@@ -262,7 +328,7 @@ func TestWebSocketGameFlow(t *testing.T) {
 	}
 	for _, connection := range []*websocket.Conn{black, white} {
 		chat := readChat(t, connection)
-		if chat.From != 1 || chat.Name != "黑棋" || chat.Text != "好棋！" {
+		if chat.From != 1 || chat.Name != blackName || chat.Text != "好棋！" {
 			t.Fatalf("unexpected chat message: %#v", chat)
 		}
 	}
@@ -512,6 +578,15 @@ func playerWantsRematch(state roomState, color int) bool {
 		}
 	}
 	return false
+}
+
+func playerName(state roomState, color int) string {
+	for _, player := range state.Players {
+		if player.Color == color {
+			return player.Name
+		}
+	}
+	return ""
 }
 
 func writeMove(t *testing.T, connection *websocket.Conn, row, column int) {

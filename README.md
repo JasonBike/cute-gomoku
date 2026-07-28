@@ -60,6 +60,20 @@ http://localhost:8090
 go run ./cmd/server -addr :9000
 ```
 
+用户身份、buvid、Session 和战绩默认保存在：
+
+```text
+./data/state.json
+```
+
+也可以指定其他路径：
+
+```bash
+go run ./cmd/server -data /var/lib/cute-gomoku/state.json
+```
+
+服务会在启动时加载该文件，并在身份或资料发生变化时加锁、写入临时文件，再原子替换正式文件。线上需要保证数据目录可写并放在持久化磁盘中；当前 JSON 存储只支持单个 Go 服务进程写入。
+
 不要直接双击 HTML 文件。页面、API 和 WebSocket 都由 Go 服务提供。
 
 ## 前端开发
@@ -169,7 +183,7 @@ Type=simple
 User=gomoku
 Group=gomoku
 WorkingDirectory=/opt/cute-gomoku
-ExecStart=/opt/cute-gomoku/cute-gomoku -addr 127.0.0.1:8090
+ExecStart=/opt/cute-gomoku/cute-gomoku -addr 127.0.0.1:8090 -data /var/lib/cute-gomoku/state.json
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

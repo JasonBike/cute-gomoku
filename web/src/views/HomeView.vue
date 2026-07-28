@@ -1,9 +1,16 @@
 <script setup lang="ts">
+import type { UserProfile } from "@/types/user";
+
+defineProps<{
+  user: UserProfile | null;
+}>();
+
 const emit = defineEmits<{
   create: [];
   join: [];
   hall: [];
   ranking: [];
+  profile: [];
 }>();
 </script>
 
@@ -16,18 +23,18 @@ const emit = defineEmits<{
         </span>
         <span><strong>棋遇</strong><small>GOMOKU CLUB</small></span>
       </a>
-      <button class="profile-chip" type="button">
+      <button class="profile-chip" type="button" @click="emit('profile')">
         <span class="avatar avatar-small" aria-hidden="true">
           <span class="avatar-ear left"></span><span class="avatar-ear right"></span><span class="avatar-face">•ᴗ•</span>
         </span>
-        <span class="profile-copy"><strong>小桃子</strong><small>黄金 III</small></span>
+        <span class="profile-copy"><strong>{{ user?.nickname || "正在认领棋手身份" }}</strong><small>棋遇游客</small></span>
         <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
       </button>
     </header>
 
     <section class="welcome">
       <div>
-        <span class="eyebrow">下午好，小桃子</span>
+        <span class="eyebrow">你好，{{ user?.nickname || "新棋手" }}</span>
         <h1>和朋友，<br />来一盘吧！</h1>
         <p><span class="status-dot"></span> 6 位好友正在对局</p>
       </div>
@@ -91,8 +98,8 @@ const emit = defineEmits<{
         </div>
         <div class="ranking-row current-user">
           <span class="rank-number">18</span><span class="avatar avatar-small"><span class="avatar-face">•ᴗ•</span></span>
-          <span class="rank-user"><strong>小桃子 <em>我</em></strong><small>黄金 III · 再赢 2 局升级</small></span>
-          <strong class="rank-score">806</strong>
+          <span class="rank-user"><strong>{{ user?.nickname || "新棋手" }} <em>我</em></strong><small>匿名身份 · 自动保存</small></span>
+          <strong class="rank-score">{{ user?.rating || 1000 }}</strong>
         </div>
       </div>
     </section>

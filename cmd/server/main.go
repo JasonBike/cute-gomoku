@@ -13,11 +13,16 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8090", "HTTP listen address")
+	dataPath := flag.String("data", "./data/state.json", "user and session JSON state path")
 	flag.Parse()
 
+	handler, err := game.NewServerWithDataFile(webapp.Files(), *dataPath)
+	if err != nil {
+		log.Fatalf("加载用户数据失败：%v", err)
+	}
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           game.NewServer(webapp.Files()),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

@@ -45,7 +45,7 @@ function relativeTime(createdAt: number) {
 }
 
 function roomStatus(room: HallRoom) {
-  if (room.joinable) return "等你入座";
+  if (room.joinable) return room.status === "finished" ? "等你续一局" : "等你入座";
   if (room.status === "playing") return `进行到第 ${room.moveCount + 1} 手`;
   return "本局已结束";
 }
@@ -156,7 +156,15 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
             :disabled="!room.joinable"
             @click="emit('join', room.roomCode)"
           >
-            {{ room.joinable ? "加入对局" : room.status === "playing" ? "对局中" : "已结束" }}
+            {{
+              room.joinable
+                ? room.status === "finished"
+                  ? "加入下一局"
+                  : "加入对局"
+                : room.status === "playing"
+                  ? "对局中"
+                  : "已结束"
+            }}
             <span v-if="room.joinable">›</span>
           </button>
         </div>

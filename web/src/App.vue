@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import BottomNav, { type AppView } from "@/components/BottomNav.vue";
+import { useIdentity } from "@/composables/useIdentity";
 import { useRoom } from "@/composables/useRoom";
 import GameView from "@/views/GameView.vue";
 import HallView from "@/views/HallView.vue";
@@ -18,6 +19,9 @@ const shareOpen = ref(false);
 const resultOpen = ref(false);
 const resignOpen = ref(false);
 const exitOpen = ref(false);
+const profileRenameOpen = ref(false);
+const profileNameInput = ref("");
+const profileSaving = ref(false);
 const roomInput = ref("");
 const toast = ref("");
 const toastKind = ref<NoticeKind>("default");
@@ -26,6 +30,7 @@ const leavingGame = ref(false);
 const gameMinimized = ref(false);
 let toastTimer = 0;
 
+const identity = useIdentity(showNotice);
 const room = useRoom(showNotice);
 const players = computed(() => room.state.room?.players || []);
 const isGameView = computed(() => currentView.value === "game");
@@ -61,6 +66,29 @@ function showNotice(message: string, kind: NoticeKind = "default") {
     () => (toast.value = ""),
     kind === "chat" ? 3200 : 1900,
   );
+}
+
+function openProfileRename() {
+  profileNameInput.value = identity.state.user?.nickname || "";
+  profileRenameOpen.value = true;
+}
+
+async function saveProfileNickname() {
+  const nickname = profileNameInput.value.trim();
+  if (!nickname || [...nickname].length > 12) {
+    showNotice("昵称需要在 1 到 12 个字之间");
+    return;
+  }
+  profileSaving.value = true;
+  try {
+    await identity.updateNickname(nickname);
+    profileRenameOpen.value = false;
+    showNotice("新昵称已经保存");
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : "昵称保存失败");
+  } finally {
+    profileSaving.value = false;
+  }
 }
 
 async function createRoom() {
@@ -299,6 +327,7 @@ watch(
 );
 
 onMounted(async () => {
+  await identity.load();
   const code = new URLSearchParams(window.location.search).get("room");
   if (!code) return;
   roomInput.value = code.toUpperCase();
@@ -317,10 +346,12 @@ onMounted(async () => {
   <main class="app-shell" :class="{ 'game-active': isGameView, 'my-turn': isGameView && isMyTurn }">
     <HomeView
       v-if="currentView === 'home'"
+      :user="identity.state.user"
       @create="createRoom"
       @join="joinOpen = true"
       @hall="currentView = 'hall'"
       @ranking="currentView = 'ranking'"
+      @profile="currentView = 'profile'"
     />
     <LobbyView
       v-else-if="currentView === 'room'"
@@ -356,7 +387,11 @@ onMounted(async () => {
       @notice="showNotice"
     />
     <RankingView v-else-if="currentView === 'ranking'" />
-    <ProfileView v-else-if="currentView === 'profile'" />
+    <ProfileView
+      v-else-if="currentView === 'profile'"
+      :user="identity.state.user"
+      @edit="openProfileRename"
+    />
 
     <BottomNav
       v-if="!isGameView && currentView !== 'room'"
@@ -377,6 +412,38 @@ onMounted(async () => {
         <input v-model.trim="roomInput" maxlength="6" placeholder="例如 7K2M8P" @keyup.enter="joinRoom" />
       </label>
       <button class="share-button" type="button" @click="joinRoom">加入房间</button>
+    </section>
+  </div>
+
+  <div
+    v-if="profileRenameOpen"
+    class="sheet-backdrop"
+    @click.self="profileRenameOpen = false"
+  >
+    <section class="bottom-sheet nickname-sheet" role="dialog" aria-modal="true" aria-labelledby="nickname-title">
+      <button class="sheet-close" type="button" aria-label="关闭" @click="profileRenameOpen = false">×</button>
+      <div class="nickname-sheet-face" aria-hidden="true">• ᴗ •</div>
+      <span class="section-kicker">MY NICKNAME</span>
+      <h2 id="nickname-title">换一个可爱的昵称</h2>
+      <p>昵称会展示在好友房间和棋友大厅，最多 12 个字。</p>
+      <label class="room-input nickname-input">
+        <span>棋手昵称</span>
+        <input
+          v-model="profileNameInput"
+          maxlength="12"
+          autocomplete="nickname"
+          placeholder="输入你的昵称"
+          @keyup.enter="saveProfileNickname"
+        />
+      </label>
+      <button
+        class="share-button"
+        type="button"
+        :disabled="profileSaving"
+        @click="saveProfileNickname"
+      >
+        {{ profileSaving ? "正在保存…" : "保存新昵称" }}
+      </button>
     </section>
   </div>
 

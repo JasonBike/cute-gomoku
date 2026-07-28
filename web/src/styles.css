@@ -2990,6 +2990,24 @@ button {
 }
 
 /* Profile */
+.profile-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 11px;
+  color: var(--orange-dark);
+  font-weight: 900;
+  font-size: 10px;
+  background: #fff1df;
+  border: 1.5px solid #e9b987;
+  border-radius: 12px;
+  box-shadow: 2px 2px 0 #e4c3a0;
+}
+
+.profile-edit-button span {
+  font-size: 13px;
+}
+
 .profile-hero {
   position: relative;
   display: flex;
@@ -3062,6 +3080,45 @@ button {
   background: rgba(255, 255, 255, 0.16);
   font-size: 9px;
   font-weight: 800;
+}
+
+.identity-safe-tip {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  color: #557841;
+  background: #edf6df;
+  border: 1.5px solid #b8d49c;
+  border-radius: 16px;
+}
+
+.identity-safe-tip > span {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: white;
+  font-weight: 900;
+  background: #8db66b;
+  border-radius: 50%;
+}
+
+.identity-safe-tip strong,
+.identity-safe-tip small {
+  display: block;
+}
+
+.identity-safe-tip strong {
+  font-size: 11px;
+}
+
+.identity-safe-tip small {
+  margin-top: 2px;
+  color: #759360;
+  font-size: 8px;
 }
 
 .stats-grid {
@@ -3161,6 +3218,58 @@ button {
 
 .history-section {
   margin-top: 26px;
+}
+
+.profile-empty-history {
+  display: grid;
+  min-height: 126px;
+  margin-top: 12px;
+  padding: 20px;
+  place-items: center;
+  align-content: center;
+  color: var(--muted);
+  background: #fffaf0;
+  border: 1.5px dashed #d9c4a0;
+  border-radius: 19px;
+  text-align: center;
+}
+
+.profile-empty-history > span {
+  margin-bottom: 7px;
+  color: var(--orange);
+  font-size: 26px;
+  transform: rotate(-8deg);
+}
+
+.profile-empty-history strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.profile-empty-history small {
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.nickname-sheet-face {
+  display: grid;
+  width: 66px;
+  height: 60px;
+  margin: 0 auto 15px;
+  place-items: center;
+  color: #80513c;
+  font-weight: 900;
+  font-size: 14px;
+  background: #ffc9b6;
+  border: 2px solid var(--ink);
+  border-radius: 45% 45% 49% 49%;
+  box-shadow: 3px 4px 0 var(--ink);
+  transform: rotate(-3deg);
+}
+
+.nickname-input {
+  margin: 20px 0 15px;
+  text-align: left;
 }
 
 .history-list {
