@@ -206,6 +206,63 @@ button {
   background: #f6ac9d;
 }
 
+.user-avatar-peach-cat {
+  background: #f6ac9d;
+}
+
+.user-avatar-matcha-rabbit {
+  background: #bddd9f;
+}
+
+.user-avatar-blueberry-bear {
+  background: #a9caeb;
+}
+
+.user-avatar-custard-chick {
+  background: #f6d778;
+}
+
+.user-avatar-milk-tea-puppy {
+  background: #d6b48c;
+}
+
+.user-avatar-grape-fox {
+  background: #c6afe7;
+}
+
+.avatar-small.user-avatar-matcha-rabbit .avatar-ear {
+  top: -7px;
+  height: 15px;
+  border-radius: 8px 8px 4px 4px;
+}
+
+.avatar-small.user-avatar-blueberry-bear .avatar-ear {
+  top: -2px;
+  width: 10px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.avatar-small.user-avatar-custard-chick .avatar-ear {
+  display: none;
+}
+
+.avatar-small.user-avatar-matcha-rabbit .avatar-ear {
+  background: #bddd9f;
+}
+
+.avatar-small.user-avatar-blueberry-bear .avatar-ear {
+  background: #a9caeb;
+}
+
+.avatar-small.user-avatar-milk-tea-puppy .avatar-ear {
+  background: #d6b48c;
+}
+
+.avatar-small.user-avatar-grape-fox .avatar-ear {
+  background: #c6afe7;
+}
+
 .avatar-ear {
   position: absolute;
   top: -4px;
@@ -3053,6 +3110,52 @@ button {
 
 .profile-main-avatar .cat-ear {
   background: #ffc1b2;
+}
+
+.profile-main-avatar.user-avatar-peach-cat,
+.profile-main-avatar.user-avatar-peach-cat .cat-ear {
+  background: #ffc1b2;
+}
+
+.profile-main-avatar.user-avatar-matcha-rabbit,
+.profile-main-avatar.user-avatar-matcha-rabbit .cat-ear {
+  background: #c7e8a9;
+}
+
+.profile-main-avatar.user-avatar-blueberry-bear,
+.profile-main-avatar.user-avatar-blueberry-bear .cat-ear {
+  background: #b9d8f3;
+}
+
+.profile-main-avatar.user-avatar-custard-chick,
+.profile-main-avatar.user-avatar-custard-chick .cat-ear {
+  background: #f8dc83;
+}
+
+.profile-main-avatar.user-avatar-milk-tea-puppy,
+.profile-main-avatar.user-avatar-milk-tea-puppy .cat-ear {
+  background: #dfc09b;
+}
+
+.profile-main-avatar.user-avatar-grape-fox,
+.profile-main-avatar.user-avatar-grape-fox .cat-ear {
+  background: #cfb9ec;
+}
+
+.profile-main-avatar.user-avatar-matcha-rabbit .cat-ear {
+  height: 24px;
+  border-radius: 12px 12px 5px 5px;
+}
+
+.profile-main-avatar.user-avatar-blueberry-bear .cat-ear {
+  top: -5px;
+  width: 22px;
+  height: 19px;
+  border-radius: 50%;
+}
+
+.profile-main-avatar.user-avatar-custard-chick .cat-ear {
+  display: none;
 }
 
 .profile-hero h2 {

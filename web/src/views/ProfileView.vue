@@ -32,7 +32,12 @@ const shortID = computed(() => props.user?.id.replace(/^QY/, "") || "--------");
       </button>
     </header>
     <div class="profile-hero">
-      <span class="profile-main-avatar"><i class="cat-ear left"></i><i class="cat-ear right"></i><b>• ᴗ •</b></span>
+      <span
+        class="profile-main-avatar"
+        :class="`user-avatar-${user?.avatar || 'peach-cat'}`"
+      >
+        <i class="cat-ear left"></i><i class="cat-ear right"></i><b>• ᴗ •</b>
+      </span>
       <div>
         <h2>{{ user?.nickname || "正在加载棋手身份" }}</h2>
         <p>棋遇号 {{ shortID }} · 加入第 {{ joinedDays }} 天</p>

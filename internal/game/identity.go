@@ -1,11 +1,13 @@
 package game
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +23,30 @@ const (
 	sessionLifetime      = 24 * time.Hour
 	deviceLifetime       = 30 * 24 * time.Hour
 )
+
+var defaultNicknames = []string{
+	"桃桃小棋手",
+	"青团兔兔",
+	"糯米团子",
+	"云朵小熊",
+	"布丁喵喵",
+	"柚子汽水",
+	"奶糖团团",
+	"栗子猫猫",
+	"月亮兔兔",
+	"星星棋手",
+	"草莓麻薯",
+	"抹茶奶盖",
+}
+
+var defaultAvatars = []string{
+	"peach-cat",
+	"matcha-rabbit",
+	"blueberry-bear",
+	"custard-chick",
+	"milk-tea-puppy",
+	"grape-fox",
+}
 
 type identityUser struct {
 	ID        string `json:"id"`
@@ -171,16 +197,35 @@ func (store *identityStore) createUserLocked(now time.Time) (identityUser, strin
 	if err != nil {
 		return identityUser{}, "", fmt.Errorf("generate device token: %w", err)
 	}
+	nickname, err := randomIdentityDefault(defaultNicknames)
+	if err != nil {
+		return identityUser{}, "", fmt.Errorf("choose default nickname: %w", err)
+	}
+	avatar, err := randomIdentityDefault(defaultAvatars)
+	if err != nil {
+		return identityUser{}, "", fmt.Errorf("choose default avatar: %w", err)
+	}
 	user := identityUser{
 		ID:        "QY" + userCode,
-		Nickname:  "桃子棋手" + userCode[len(userCode)-4:],
-		Avatar:    "peach-cat",
+		Nickname:  nickname,
+		Avatar:    avatar,
 		Rating:    1000,
 		CreatedAt: now.UnixMilli(),
 	}
 	store.state.Users[user.ID] = user
 	store.state.Devices[hashIdentityToken(deviceToken)] = user.ID
 	return user, deviceToken, nil
+}
+
+func randomIdentityDefault(options []string) (string, error) {
+	if len(options) == 0 {
+		return "", errors.New("default identity options are empty")
+	}
+	index, err := rand.Int(rand.Reader, big.NewInt(int64(len(options))))
+	if err != nil {
+		return "", err
+	}
+	return options[index.Int64()], nil
 }
 
 func (store *identityStore) updateNickname(userID, nickname string) (identityUser, error) {

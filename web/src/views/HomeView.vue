@@ -24,7 +24,11 @@ const emit = defineEmits<{
         <span><strong>棋遇</strong><small>GOMOKU CLUB</small></span>
       </a>
       <button class="profile-chip" type="button" @click="emit('profile')">
-        <span class="avatar avatar-small" aria-hidden="true">
+        <span
+          class="avatar avatar-small"
+          :class="`user-avatar-${user?.avatar || 'peach-cat'}`"
+          aria-hidden="true"
+        >
           <span class="avatar-ear left"></span><span class="avatar-ear right"></span><span class="avatar-face">•ᴗ•</span>
         </span>
         <span class="profile-copy"><strong>{{ user?.nickname || "正在认领棋手身份" }}</strong><small>棋遇游客</small></span>
@@ -97,7 +101,7 @@ const emit = defineEmits<{
           <strong class="rank-score">1,174</strong>
         </div>
         <div class="ranking-row current-user">
-          <span class="rank-number">18</span><span class="avatar avatar-small"><span class="avatar-face">•ᴗ•</span></span>
+          <span class="rank-number">18</span><span class="avatar avatar-small" :class="`user-avatar-${user?.avatar || 'peach-cat'}`"><span class="avatar-face">•ᴗ•</span></span>
           <span class="rank-user"><strong>{{ user?.nickname || "新棋手" }} <em>我</em></strong><small>匿名身份 · 自动保存</small></span>
           <strong class="rank-score">{{ user?.rating || 1000 }}</strong>
         </div>
