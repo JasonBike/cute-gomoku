@@ -36,6 +36,7 @@ const game = {
   moves: [],
   current: 1,
   ended: false,
+  status: "idle",
   mode: "local",
   blackSeconds: 600,
   whiteSeconds: 600,
@@ -82,6 +83,8 @@ function showView(name) {
     startGameTimer();
   } else {
     stopGameTimer();
+    appShell.classList.remove("my-turn");
+    if (!document.title.includes("等待好友")) document.title = "棋遇 · 好友五子棋";
   }
 }
 
@@ -283,18 +286,25 @@ function connectRoomSocket() {
 }
 
 function handleRoomState(state) {
+  const becameMyTurn =
+    state.status === "playing" &&
+    state.turn === online.color &&
+    (game.status !== "playing" || game.current !== online.color);
   updateRoomCode(state.roomCode);
   game.mode = "online";
   game.board = state.board;
   game.moves = state.moves || [];
   game.current = state.turn;
+  game.status = state.status;
   game.winningLine = state.winningLine?.length === 2 ? state.winningLine : null;
   game.ended = state.status === "finished";
   syncPlayerUI(state.players);
   updateTurnUI();
   drawBoard();
+  if (becameMyTurn) notifyMyTurn();
 
   if (state.status === "waiting") {
+    document.title = "等待好友加入｜棋遇";
     resetLobby();
     syncLobbyPlayers(state.players);
     if (!document.querySelector('[data-view="room"]').classList.contains("active")) showView("room");
@@ -380,6 +390,7 @@ function resetGame() {
   game.moves = [];
   game.current = 1;
   game.ended = false;
+  game.status = "playing";
   game.blackSeconds = 600;
   game.whiteSeconds = 600;
   game.winningLine = null;
@@ -523,12 +534,14 @@ function placeStone(row, column) {
 
   if (game.winningLine) {
     game.ended = true;
+    game.status = "finished";
     window.setTimeout(() => showResult(player), 550);
     return;
   }
 
   if (game.moves.length === BOARD_SIZE * BOARD_SIZE) {
     game.ended = true;
+    game.status = "finished";
     window.setTimeout(() => showResult(0), 350);
     return;
   }
@@ -574,7 +587,11 @@ function findWinningLine(row, column, player) {
 function updateTurnUI() {
   const isBlack = game.current === 1;
   const isMyTurn = game.mode !== "online" || game.current === online.color;
+  const isActiveOnlineTurn = game.mode === "online" && game.status === "playing" && isMyTurn && !game.ended;
   const banner = document.querySelector("#turnBanner");
+  banner.classList.toggle("my-turn", isActiveOnlineTurn);
+  banner.classList.toggle("opponent-turn", game.mode === "online" && game.status === "playing" && !isMyTurn);
+  appShell.classList.toggle("my-turn", isActiveOnlineTurn);
   banner.querySelector(".turn-stone").className = `turn-stone ${isBlack ? "black" : "white"}`;
   banner.querySelector("strong").textContent =
     game.mode === "online"
@@ -587,6 +604,17 @@ function updateTurnUI() {
   banner.querySelector("small").textContent = `${game.moves.length + 1} 手`;
   document.querySelector("#blackPlayerPanel").classList.toggle("active-player", isBlack);
   document.querySelector("#whitePlayerPanel").classList.toggle("active-player", !isBlack);
+  if (game.mode === "online" && game.status === "playing" && !isMyTurn) {
+    document.title = "等待对手落子｜棋遇";
+  }
+}
+
+function notifyMyTurn() {
+  document.title = "● 轮到你落子了｜棋遇";
+  const banner = document.querySelector("#turnBanner");
+  banner.classList.remove("turn-pop");
+  requestAnimationFrame(() => banner.classList.add("turn-pop"));
+  if ("vibrate" in navigator) navigator.vibrate([70, 45, 70]);
 }
 
 function startGameTimer() {
@@ -635,6 +663,9 @@ function undoMove() {
 
 function showResult(winner, resigned = false) {
   game.ended = true;
+  game.status = "finished";
+  appShell.classList.remove("my-turn");
+  document.title = "棋局结束｜棋遇";
   stopGameTimer();
   const isWin = winner === (game.mode === "online" ? online.color : 1);
   const isDraw = winner === 0;
