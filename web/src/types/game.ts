@@ -27,6 +27,7 @@ export interface RoomState {
   moves: Move[];
   players: PlayerState[];
   winningLine?: Coordinate[];
+  undoRequester?: Color;
 }
 
 export interface RoomCredentials {
@@ -39,4 +40,22 @@ export interface ServerError {
   type: "error";
   code: string;
   message: string;
+}
+
+export interface ChatMessage {
+  type: "chat";
+  from: 1 | 2;
+  name: string;
+  text: string;
+}
+
+export interface HallRoom {
+  roomCode: string;
+  hostName: string;
+  status: RoomStatus;
+  playerCount: number;
+  connectedCount: number;
+  moveCount: number;
+  joinable: boolean;
+  createdAt: number;
 }

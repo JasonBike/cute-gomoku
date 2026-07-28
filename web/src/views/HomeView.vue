@@ -1,8 +1,8 @@
 <script setup lang="ts">
-defineEmits<{
+const emit = defineEmits<{
   create: [];
   join: [];
-  ranked: [];
+  hall: [];
   ranking: [];
 }>();
 </script>
@@ -46,7 +46,7 @@ defineEmits<{
     </section>
 
     <section class="game-actions" aria-label="开始游戏">
-      <button class="action-card friend-card" type="button" @click="$emit('create')">
+      <button class="action-card friend-card" type="button" @click="emit('create')">
         <span class="action-icon" aria-hidden="true">♟</span>
         <span class="action-copy">
           <span class="action-label">好友对战</span>
@@ -56,17 +56,17 @@ defineEmits<{
         <span class="action-arrow" aria-hidden="true">›</span>
         <span class="card-doodle" aria-hidden="true">✿</span>
       </button>
-      <button class="action-card rank-card" type="button" @click="$emit('ranked')">
-        <span class="action-icon" aria-hidden="true">★</span>
+      <button class="action-card rank-card hall-card" type="button" @click="emit('hall')">
+        <span class="action-icon" aria-hidden="true">♣</span>
         <span class="action-copy">
-          <span class="action-label">排位对战</span>
-          <strong>匹配棋友，<br />冲击新段位</strong>
-          <small>排位服务即将开放</small>
+          <span class="action-label">在线大厅</span>
+          <strong>看看谁在等，<br />随时加入一局</strong>
+          <small>真实房间 · 实时刷新</small>
         </span>
-        <span class="rank-badge">黄金 III</span>
+        <span class="rank-badge">LIVE</span>
         <span class="action-arrow" aria-hidden="true">›</span>
       </button>
-      <button class="join-room" type="button" @click="$emit('join')">
+      <button class="join-room" type="button" @click="emit('join')">
         <span class="join-icon" aria-hidden="true">#</span>
         <span><strong>输入房间号</strong><small>已有好友在等你？</small></span>
         <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
@@ -76,7 +76,7 @@ defineEmits<{
     <section class="ranking-section">
       <div class="section-heading">
         <div><span class="section-kicker">本周棋坛</span><h2>好友排行榜</h2></div>
-        <button type="button" @click="$emit('ranking')">查看全部 <span>›</span></button>
+        <button type="button" @click="emit('ranking')">查看全部 <span>›</span></button>
       </div>
       <div class="ranking-card">
         <div class="ranking-row">

@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,21 +41,23 @@ type player struct {
 	Color     int
 	Connected bool
 	Rematch   bool
+	LastChat  time.Time
 	conn      *websocket.Conn
 }
 
 type room struct {
-	mu          sync.Mutex
-	Code        string
-	Board       [boardSize][boardSize]int
-	Players     map[string]*player
-	Turn        int
-	Status      string
-	Winner      int
-	Moves       []move
-	WinningLine []coordinate
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	mu            sync.Mutex
+	Code          string
+	Board         [boardSize][boardSize]int
+	Players       map[string]*player
+	Turn          int
+	Status        string
+	Winner        int
+	Moves         []move
+	WinningLine   []coordinate
+	UndoRequester int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type Server struct {
@@ -65,7 +68,8 @@ type Server struct {
 }
 
 type roomRequest struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	PlayerToken string `json:"playerToken"`
 }
 
 type roomResponse struct {
@@ -74,10 +78,27 @@ type roomResponse struct {
 	Color       int    `json:"color"`
 }
 
+type roomSummary struct {
+	RoomCode       string `json:"roomCode"`
+	HostName       string `json:"hostName"`
+	Status         string `json:"status"`
+	PlayerCount    int    `json:"playerCount"`
+	ConnectedCount int    `json:"connectedCount"`
+	MoveCount      int    `json:"moveCount"`
+	Joinable       bool   `json:"joinable"`
+	CreatedAt      int64  `json:"createdAt"`
+}
+
+type roomListResponse struct {
+	Rooms []roomSummary `json:"rooms"`
+}
+
 type clientMessage struct {
-	Type   string `json:"type"`
-	Row    int    `json:"row"`
-	Column int    `json:"column"`
+	Type     string `json:"type"`
+	Row      int    `json:"row"`
+	Column   int    `json:"column"`
+	Text     string `json:"text"`
+	Accepted bool   `json:"accepted"`
 }
 
 type playerState struct {
@@ -88,21 +109,40 @@ type playerState struct {
 }
 
 type roomState struct {
-	Type        string                    `json:"type"`
-	RoomCode    string                    `json:"roomCode"`
-	Status      string                    `json:"status"`
-	Board       [boardSize][boardSize]int `json:"board"`
-	Turn        int                       `json:"turn"`
-	Winner      int                       `json:"winner"`
-	Moves       []move                    `json:"moves"`
-	Players     []playerState             `json:"players"`
-	WinningLine []coordinate              `json:"winningLine,omitempty"`
+	Type          string                    `json:"type"`
+	RoomCode      string                    `json:"roomCode"`
+	Status        string                    `json:"status"`
+	Board         [boardSize][boardSize]int `json:"board"`
+	Turn          int                       `json:"turn"`
+	Winner        int                       `json:"winner"`
+	Moves         []move                    `json:"moves"`
+	Players       []playerState             `json:"players"`
+	WinningLine   []coordinate              `json:"winningLine,omitempty"`
+	UndoRequester int                       `json:"undoRequester,omitempty"`
 }
 
 type errorMessage struct {
 	Type    string `json:"type"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type chatMessage struct {
+	Type string `json:"type"`
+	From int    `json:"from"`
+	Name string `json:"name"`
+	Text string `json:"text"`
+}
+
+var allowedChatMessages = map[string]struct{}{
+	"嗨，来一局！":   {},
+	"好棋！":      {},
+	"差一点！":     {},
+	"认真起来了":    {},
+	"慢慢想，不着急":  {},
+	"再来一局！":    {},
+	"你打的可太好了。": {},
+	"我等的花儿都谢了": {},
 }
 
 func NewServer(webFS fs.FS) http.Handler {
@@ -127,6 +167,7 @@ func NewServer(webFS fs.FS) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
+	mux.HandleFunc("GET /api/rooms", server.listRooms)
 	mux.HandleFunc("POST /api/rooms", server.createRoom)
 	mux.HandleFunc("POST /api/rooms/{code}/join", server.joinRoom)
 	mux.HandleFunc("GET /ws", server.serveWebSocket)
@@ -211,6 +252,47 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 	writeJSON(response, http.StatusCreated, roomResponse{RoomCode: code, PlayerToken: token, Color: 1})
 }
 
+func (server *Server) listRooms(response http.ResponseWriter, _ *http.Request) {
+	result := roomListResponse{Rooms: make([]roomSummary, 0)}
+
+	server.roomsMu.RLock()
+	for _, gameRoom := range server.rooms {
+		gameRoom.mu.Lock()
+		hostName := "神秘棋手"
+		connectedCount := 0
+		for _, roomPlayer := range gameRoom.Players {
+			if roomPlayer.Color == 1 {
+				hostName = roomPlayer.Name
+			}
+			if roomPlayer.Connected {
+				connectedCount++
+			}
+		}
+		if connectedCount > 0 {
+			result.Rooms = append(result.Rooms, roomSummary{
+				RoomCode:       gameRoom.Code,
+				HostName:       hostName,
+				Status:         gameRoom.Status,
+				PlayerCount:    len(gameRoom.Players),
+				ConnectedCount: connectedCount,
+				MoveCount:      len(gameRoom.Moves),
+				Joinable:       gameRoom.Status == "waiting" && len(gameRoom.Players) < 2,
+				CreatedAt:      gameRoom.CreatedAt.UnixMilli(),
+			})
+		}
+		gameRoom.mu.Unlock()
+	}
+	server.roomsMu.RUnlock()
+
+	sort.Slice(result.Rooms, func(left, right int) bool {
+		if result.Rooms[left].Joinable != result.Rooms[right].Joinable {
+			return result.Rooms[left].Joinable
+		}
+		return result.Rooms[left].CreatedAt > result.Rooms[right].CreatedAt
+	})
+	writeJSON(response, http.StatusOK, result)
+}
+
 func (server *Server) joinRoom(response http.ResponseWriter, request *http.Request) {
 	code := normalizeRoomCode(request.PathValue("code"))
 	gameRoom := server.getRoom(code)
@@ -225,14 +307,18 @@ func (server *Server) joinRoom(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	body.Name = normalizeName(body.Name)
-	token, err := newToken()
-	if err != nil {
-		writeAPIError(response, http.StatusInternalServerError, "token_generation_failed", "暂时无法加入房间")
-		return
-	}
 
 	gameRoom.mu.Lock()
 	defer gameRoom.mu.Unlock()
+	if existingPlayer := gameRoom.Players[body.PlayerToken]; body.PlayerToken != "" && existingPlayer != nil {
+		gameRoom.UpdatedAt = time.Now()
+		writeJSON(response, http.StatusOK, roomResponse{
+			RoomCode:    code,
+			PlayerToken: existingPlayer.Token,
+			Color:       existingPlayer.Color,
+		})
+		return
+	}
 	if len(gameRoom.Players) >= 2 {
 		writeAPIError(response, http.StatusConflict, "room_full", "这个房间已经坐满了")
 		return
@@ -242,6 +328,11 @@ func (server *Server) joinRoom(response http.ResponseWriter, request *http.Reque
 		return
 	}
 
+	token, err := newToken()
+	if err != nil {
+		writeAPIError(response, http.StatusInternalServerError, "token_generation_failed", "暂时无法加入房间")
+		return
+	}
 	gameRoom.Players[token] = &player{Token: token, Name: body.Name, Color: 2}
 	gameRoom.UpdatedAt = time.Now()
 	writeJSON(response, http.StatusOK, roomResponse{RoomCode: code, PlayerToken: token, Color: 2})
@@ -298,6 +389,8 @@ func (server *Server) readLoop(gameRoom *room, currentPlayer *player, connection
 		if currentPlayer.conn == connection {
 			currentPlayer.conn = nil
 			currentPlayer.Connected = false
+			gameRoom.UndoRequester = 0
+			clearRematchRequests(gameRoom)
 			gameRoom.UpdatedAt = time.Now()
 			server.broadcastLocked(gameRoom)
 		}
@@ -365,15 +458,70 @@ func (server *Server) handleClientMessage(gameRoom *room, currentPlayer *player,
 		}
 		gameRoom.Winner = oppositeColor(currentPlayer.Color)
 		gameRoom.Status = "finished"
+		gameRoom.UndoRequester = 0
 	case "rematch":
 		if gameRoom.Status != "finished" {
 			writeSocketError(connection, "game_not_finished", "棋局结束后才能再来一局")
+			return
+		}
+		if !bothPlayersConnected(gameRoom) {
+			writeSocketError(connection, "opponent_offline", "对手暂时离线，无法申请再来一局")
 			return
 		}
 		currentPlayer.Rematch = true
 		if bothPlayersWantRematch(gameRoom) {
 			resetRoomLocked(gameRoom)
 		}
+	case "undo_request":
+		if gameRoom.Status != "playing" {
+			writeSocketError(connection, "game_not_playing", "棋局进行中才能申请悔棋")
+			return
+		}
+		if !bothPlayersConnected(gameRoom) {
+			writeSocketError(connection, "opponent_offline", "对手暂时离线，无法申请悔棋")
+			return
+		}
+		if gameRoom.UndoRequester != 0 {
+			writeSocketError(connection, "undo_pending", "已经有一条悔棋申请等待处理")
+			return
+		}
+		if !hasMoveByPlayer(gameRoom, currentPlayer.Color) {
+			writeSocketError(connection, "nothing_to_undo", "你还没有可以撤回的棋子")
+			return
+		}
+		gameRoom.UndoRequester = currentPlayer.Color
+	case "undo_response":
+		if gameRoom.UndoRequester == 0 {
+			writeSocketError(connection, "no_undo_request", "当前没有待处理的悔棋申请")
+			return
+		}
+		if gameRoom.UndoRequester == currentPlayer.Color {
+			writeSocketError(connection, "cannot_review_own_undo", "不能处理自己的悔棋申请")
+			return
+		}
+		requester := gameRoom.UndoRequester
+		if message.Accepted {
+			rollbackToPlayerLocked(gameRoom, requester)
+		} else {
+			gameRoom.UndoRequester = 0
+		}
+	case "chat":
+		text := strings.TrimSpace(message.Text)
+		if _, allowed := allowedChatMessages[text]; !allowed {
+			writeSocketError(connection, "invalid_chat", "不支持这条快捷消息")
+			return
+		}
+		if !bothPlayersConnected(gameRoom) {
+			writeSocketError(connection, "opponent_offline", "对手暂时离线，消息没有发出")
+			return
+		}
+		if time.Since(currentPlayer.LastChat) < 2*time.Second {
+			writeSocketError(connection, "chat_too_fast", "说得太快啦，稍等一下")
+			return
+		}
+		currentPlayer.LastChat = time.Now()
+		server.sendChatLocked(gameRoom, currentPlayer, text)
+		return
 	default:
 		writeSocketError(connection, "unknown_action", "不支持的操作")
 		return
@@ -383,12 +531,33 @@ func (server *Server) handleClientMessage(gameRoom *room, currentPlayer *player,
 	server.broadcastLocked(gameRoom)
 }
 
+func (server *Server) sendChatLocked(gameRoom *room, sender *player, text string) {
+	message := chatMessage{
+		Type: "chat",
+		From: sender.Color,
+		Name: sender.Name,
+		Text: text,
+	}
+	for _, roomPlayer := range gameRoom.Players {
+		if roomPlayer.conn == nil {
+			continue
+		}
+		_ = roomPlayer.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := roomPlayer.conn.WriteJSON(message); err != nil {
+			_ = roomPlayer.conn.Close()
+		}
+	}
+}
+
 func validateMove(gameRoom *room, currentPlayer *player, row, column int) (string, string) {
 	if gameRoom.Status != "playing" {
 		return "game_not_playing", "棋局还没有开始"
 	}
 	if !bothPlayersConnected(gameRoom) {
 		return "opponent_offline", "对手暂时离线，请等待重连"
+	}
+	if gameRoom.UndoRequester != 0 {
+		return "undo_pending", "请先处理当前的悔棋申请"
 	}
 	if gameRoom.Turn != currentPlayer.Color {
 		return "not_your_turn", "还没有轮到你"
@@ -404,26 +573,66 @@ func validateMove(gameRoom *room, currentPlayer *player, row, column int) (strin
 
 func resetRoomLocked(gameRoom *room) {
 	gameRoom.Board = [boardSize][boardSize]int{}
-	gameRoom.Moves = nil
+	gameRoom.Moves = make([]move, 0)
 	gameRoom.WinningLine = nil
 	gameRoom.Turn = 1
 	gameRoom.Winner = 0
+	gameRoom.UndoRequester = 0
 	gameRoom.Status = "playing"
 	for _, roomPlayer := range gameRoom.Players {
 		roomPlayer.Rematch = false
 	}
 }
 
+func clearRematchRequests(gameRoom *room) {
+	for _, roomPlayer := range gameRoom.Players {
+		roomPlayer.Rematch = false
+	}
+}
+
+func hasMoveByPlayer(gameRoom *room, color int) bool {
+	for index := len(gameRoom.Moves) - 1; index >= 0; index-- {
+		if gameRoom.Moves[index].Player == color {
+			return true
+		}
+	}
+	return false
+}
+
+func rollbackToPlayerLocked(gameRoom *room, color int) {
+	start := -1
+	for index := len(gameRoom.Moves) - 1; index >= 0; index-- {
+		if gameRoom.Moves[index].Player == color {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		gameRoom.UndoRequester = 0
+		return
+	}
+	for _, removed := range gameRoom.Moves[start:] {
+		gameRoom.Board[removed.Row][removed.Column] = 0
+	}
+	gameRoom.Moves = append([]move{}, gameRoom.Moves[:start]...)
+	gameRoom.WinningLine = nil
+	gameRoom.Winner = 0
+	gameRoom.Turn = color
+	gameRoom.Status = "playing"
+	gameRoom.UndoRequester = 0
+}
+
 func (server *Server) broadcastLocked(gameRoom *room) {
 	state := roomState{
-		Type:        "state",
-		RoomCode:    gameRoom.Code,
-		Status:      gameRoom.Status,
-		Board:       gameRoom.Board,
-		Turn:        gameRoom.Turn,
-		Winner:      gameRoom.Winner,
-		Moves:       append([]move(nil), gameRoom.Moves...),
-		WinningLine: append([]coordinate(nil), gameRoom.WinningLine...),
+		Type:          "state",
+		RoomCode:      gameRoom.Code,
+		Status:        gameRoom.Status,
+		Board:         gameRoom.Board,
+		Turn:          gameRoom.Turn,
+		Winner:        gameRoom.Winner,
+		Moves:         append([]move{}, gameRoom.Moves...),
+		WinningLine:   append([]coordinate(nil), gameRoom.WinningLine...),
+		UndoRequester: gameRoom.UndoRequester,
 	}
 	for _, roomPlayer := range gameRoom.Players {
 		state.Players = append(state.Players, playerState{
@@ -607,8 +816,7 @@ func (server *Server) cleanupRooms() {
 		server.roomsMu.Lock()
 		for code, gameRoom := range server.rooms {
 			gameRoom.mu.Lock()
-			age := now.Sub(gameRoom.UpdatedAt)
-			expired := age > 2*time.Hour || (gameRoom.Status == "finished" && age > 30*time.Minute)
+			expired := roomExpired(gameRoom, now)
 			gameRoom.mu.Unlock()
 			if expired {
 				delete(server.rooms, code)
@@ -616,6 +824,15 @@ func (server *Server) cleanupRooms() {
 		}
 		server.roomsMu.Unlock()
 	}
+}
+
+func roomExpired(gameRoom *room, now time.Time) bool {
+	for _, roomPlayer := range gameRoom.Players {
+		if roomPlayer.Connected {
+			return false
+		}
+	}
+	return now.Sub(gameRoom.UpdatedAt) > 30*time.Minute
 }
 
 func (state roomState) String() string {

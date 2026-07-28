@@ -1,9 +1,9 @@
 import { computed, onBeforeUnmount, reactive } from "vue";
-import type { RoomCredentials, RoomState, ServerError } from "@/types/game";
+import type { ChatMessage, RoomCredentials, RoomState, ServerError } from "@/types/game";
 
 const roomCodePattern = /^[A-HJ-NP-Z2-9]{6}$/;
 
-export function useRoom(onNotice: (message: string) => void) {
+export function useRoom(onNotice: (message: string, kind?: "default" | "chat") => void) {
   const state = reactive({
     roomCode: "",
     token: "",
@@ -61,14 +61,15 @@ export function useRoom(onNotice: (message: string) => void) {
     connect();
   }
 
-  async function join(code: string, name = "好友棋手") {
+  async function join(code: string, name = "好友棋手", resumeExisting = true) {
     const normalized = code.trim().toUpperCase();
     if (!roomCodePattern.test(normalized)) throw new Error("请输入正确的六位房间号");
+    const session = resumeExisting ? readSession(normalized) : null;
     const credentials = await request<RoomCredentials>(
       `/api/rooms/${encodeURIComponent(normalized)}/join`,
       {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, playerToken: session?.token || "" }),
       },
     );
     setCredentials(credentials);
@@ -86,6 +87,7 @@ export function useRoom(onNotice: (message: string) => void) {
     if (session?.token && session.color) {
       state.token = session.token;
       state.color = session.color;
+      saveSession();
       connect();
       return true;
     }
@@ -116,11 +118,22 @@ export function useRoom(onNotice: (message: string) => void) {
       state.reconnectAttempts = 0;
     });
     socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data) as RoomState | ServerError;
+      const message = JSON.parse(event.data) as RoomState | ServerError | ChatMessage;
       if (message.type === "error") {
         onNotice(message.message);
         return;
       }
+      if (message.type === "chat") {
+        if (message.from === state.color) {
+          onNotice(`已发送：${message.text}`);
+        } else {
+          onNotice(`${message.name || "对手"}：${message.text}`, "chat");
+          navigator.vibrate?.(60);
+        }
+        return;
+      }
+      message.moves = Array.isArray(message.moves) ? message.moves : [];
+      message.players = Array.isArray(message.players) ? message.players : [];
       state.room = message;
     });
     socket.addEventListener("close", () => {
@@ -155,6 +168,18 @@ export function useRoom(onNotice: (message: string) => void) {
     return send({ type: "rematch" });
   }
 
+  function requestUndo() {
+    return send({ type: "undo_request" });
+  }
+
+  function respondUndo(accepted: boolean) {
+    return send({ type: "undo_response", accepted });
+  }
+
+  function chat(text: string) {
+    return send({ type: "chat", text });
+  }
+
   function leave() {
     state.manualClose = true;
     window.clearTimeout(state.reconnectTimer);
@@ -169,19 +194,29 @@ export function useRoom(onNotice: (message: string) => void) {
   }
 
   function saveSession() {
+    const value = JSON.stringify({ token: state.token, color: state.color });
     try {
-      localStorage.setItem(
-        `qiyu-room-${state.roomCode}`,
-        JSON.stringify({ token: state.token, color: state.color }),
-      );
+      sessionStorage.setItem(`qiyu-room-${state.roomCode}`, value);
+    } catch {
+      // The current page connection still works when storage is unavailable.
+    }
+    try {
+      localStorage.setItem(`qiyu-room-${state.roomCode}`, value);
     } catch {
       // The current page connection still works when storage is unavailable.
     }
   }
 
   function readSession(code: string): { token: string; color: 1 | 2 } | null {
+    const key = `qiyu-room-${code}`;
     try {
-      return JSON.parse(localStorage.getItem(`qiyu-room-${code}`) || "null");
+      const session = JSON.parse(sessionStorage.getItem(key) || "null");
+      if (session?.token && session?.color) return session;
+    } catch {
+      // Fall back to the persistent session below.
+    }
+    try {
+      return JSON.parse(localStorage.getItem(key) || "null");
     } catch {
       return null;
     }
@@ -211,6 +246,9 @@ export function useRoom(onNotice: (message: string) => void) {
     move,
     resign,
     rematch,
+    requestUndo,
+    respondUndo,
+    chat,
     leave,
   };
 }

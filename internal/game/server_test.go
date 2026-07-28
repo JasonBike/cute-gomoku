@@ -65,6 +65,30 @@ func TestFindWinningLineRequiresFive(t *testing.T) {
 	}
 }
 
+func TestRoomExpiresThirtyMinutesAfterEveryoneDisconnects(t *testing.T) {
+	now := time.Now()
+	gameRoom := &room{
+		Players: map[string]*player{
+			"black": {Color: 1},
+			"white": {Color: 2},
+		},
+		UpdatedAt: now.Add(-29 * time.Minute),
+	}
+	if roomExpired(gameRoom, now) {
+		t.Fatal("room expired before 30 minutes")
+	}
+
+	gameRoom.UpdatedAt = now.Add(-31 * time.Minute)
+	if !roomExpired(gameRoom, now) {
+		t.Fatal("offline room should expire after 30 minutes")
+	}
+
+	gameRoom.Players["black"].Connected = true
+	if roomExpired(gameRoom, now) {
+		t.Fatal("room with a connected player must not expire")
+	}
+}
+
 func TestCreateAndJoinRoom(t *testing.T) {
 	handler := NewServer(os.DirFS("../.."))
 
@@ -135,6 +159,72 @@ func TestRoomRejectsThirdPlayer(t *testing.T) {
 	}
 }
 
+func TestRoomAllowsExistingPlayerToRejoinWhenFull(t *testing.T) {
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
+	defer testServer.Close()
+
+	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"黑棋"}`)
+	guest := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"白棋"}`,
+	)
+	resumed := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"白棋","playerToken":"`+guest.PlayerToken+`"}`,
+	)
+
+	if resumed.PlayerToken != guest.PlayerToken || resumed.Color != guest.Color {
+		t.Fatalf("unexpected resumed credentials: %#v", resumed)
+	}
+}
+
+func TestRoomListOnlyShowsConnectedRooms(t *testing.T) {
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
+	defer testServer.Close()
+
+	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"大厅房主"}`)
+	if rooms := requestRoomList(t, testServer.URL); len(rooms) != 0 {
+		t.Fatalf("offline room should not be listed: %#v", rooms)
+	}
+
+	black := dialRoom(t, testServer.URL, creator.RoomCode, creator.PlayerToken)
+	defer black.Close()
+	_ = readState(t, black)
+
+	rooms := requestRoomList(t, testServer.URL)
+	if len(rooms) != 1 {
+		t.Fatalf("listed rooms = %d, want 1", len(rooms))
+	}
+	if rooms[0].RoomCode != creator.RoomCode || rooms[0].HostName != "大厅房主" ||
+		!rooms[0].Joinable || rooms[0].PlayerCount != 1 || rooms[0].ConnectedCount != 1 {
+		t.Fatalf("unexpected waiting room summary: %#v", rooms[0])
+	}
+
+	guest := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"大厅客人"}`,
+	)
+	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
+	defer white.Close()
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	rooms = requestRoomList(t, testServer.URL)
+	if len(rooms) != 1 || rooms[0].Status != "playing" || rooms[0].Joinable ||
+		rooms[0].PlayerCount != 2 || rooms[0].ConnectedCount != 2 {
+		t.Fatalf("unexpected playing room summary: %#v", rooms)
+	}
+}
+
 func TestWebSocketGameFlow(t *testing.T) {
 	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
 	defer testServer.Close()
@@ -154,6 +244,9 @@ func TestWebSocketGameFlow(t *testing.T) {
 	if firstState.Status != "waiting" {
 		t.Fatalf("first player status = %q, want waiting", firstState.Status)
 	}
+	if firstState.Moves == nil {
+		t.Fatal("empty moves must be encoded as [] instead of null")
+	}
 
 	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
 	defer white.Close()
@@ -162,6 +255,40 @@ func TestWebSocketGameFlow(t *testing.T) {
 	}
 	if state := readState(t, white); state.Status != "playing" {
 		t.Fatalf("white status = %q, want playing", state.Status)
+	}
+
+	if err := black.WriteJSON(clientMessage{Type: "chat", Text: "好棋！"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		chat := readChat(t, connection)
+		if chat.From != 1 || chat.Name != "黑棋" || chat.Text != "好棋！" {
+			t.Fatalf("unexpected chat message: %#v", chat)
+		}
+	}
+
+	writeMove(t, black, 6, 6)
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	if err := black.WriteJSON(clientMessage{Type: "undo_request"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		state := readState(t, connection)
+		if state.UndoRequester != 1 {
+			t.Fatalf("undo requester = %d, want 1", state.UndoRequester)
+		}
+	}
+
+	if err := white.WriteJSON(clientMessage{Type: "undo_response", Accepted: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		state := readState(t, connection)
+		if state.UndoRequester != 0 || len(state.Moves) != 0 || state.Board[6][6] != 0 || state.Turn != 1 {
+			t.Fatalf("unexpected state after undo: %#v", state)
+		}
 	}
 
 	blackColumns := []int{7, 8, 9, 10, 11}
@@ -181,6 +308,127 @@ func TestWebSocketGameFlow(t *testing.T) {
 		_ = readState(t, black)
 		_ = readState(t, white)
 	}
+
+	if err := black.WriteJSON(clientMessage{Type: "rematch"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		state := readState(t, connection)
+		if state.Status != "finished" || !playerWantsRematch(state, 1) {
+			t.Fatalf("unexpected waiting rematch state: %#v", state)
+		}
+	}
+
+	if err := white.WriteJSON(clientMessage{Type: "rematch"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		state := readState(t, connection)
+		if state.Status != "playing" || len(state.Moves) != 0 || state.Turn != 1 {
+			t.Fatalf("unexpected rematch state: %#v", state)
+		}
+	}
+}
+
+func TestResignEndsGame(t *testing.T) {
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
+	defer testServer.Close()
+
+	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"黑棋"}`)
+	guest := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"白棋"}`,
+	)
+
+	black := dialRoom(t, testServer.URL, creator.RoomCode, creator.PlayerToken)
+	defer black.Close()
+	_ = readState(t, black)
+	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
+	defer white.Close()
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	if err := white.WriteJSON(clientMessage{Type: "resign"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range []*websocket.Conn{black, white} {
+		state := readState(t, connection)
+		if state.Status != "finished" || state.Winner != 1 {
+			t.Fatalf("unexpected state after resign: %#v", state)
+		}
+	}
+}
+
+func TestRematchRequestClearsWhenOpponentDisconnects(t *testing.T) {
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
+	defer testServer.Close()
+
+	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"黑棋"}`)
+	guest := requestRoom(
+		t,
+		testServer.URL,
+		http.MethodPost,
+		"/api/rooms/"+creator.RoomCode+"/join",
+		`{"name":"白棋"}`,
+	)
+
+	black := dialRoom(t, testServer.URL, creator.RoomCode, creator.PlayerToken)
+	defer black.Close()
+	_ = readState(t, black)
+	white := dialRoom(t, testServer.URL, creator.RoomCode, guest.PlayerToken)
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	if err := white.WriteJSON(clientMessage{Type: "resign"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = readState(t, black)
+	_ = readState(t, white)
+
+	if err := black.WriteJSON(clientMessage{Type: "rematch"}); err != nil {
+		t.Fatal(err)
+	}
+	blackWaiting := readState(t, black)
+	_ = readState(t, white)
+	if !playerWantsRematch(blackWaiting, 1) {
+		t.Fatal("black rematch request was not recorded")
+	}
+
+	if err := white.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blackAfterDisconnect := readState(t, black)
+	if playerWantsRematch(blackAfterDisconnect, 1) {
+		t.Fatal("rematch request remained after opponent disconnected")
+	}
+
+	if err := black.WriteJSON(clientMessage{Type: "rematch"}); err != nil {
+		t.Fatal(err)
+	}
+	socketError := readSocketError(t, black)
+	if socketError.Code != "opponent_offline" {
+		t.Fatalf("rematch with offline opponent returned %q", socketError.Code)
+	}
+}
+
+func requestRoomList(t *testing.T, baseURL string) []roomSummary {
+	t.Helper()
+	response, err := http.Get(baseURL + "/api/rooms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("list rooms returned %d", response.StatusCode)
+	}
+	var result roomListResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	return result.Rooms
 }
 
 func requestRoom(t *testing.T, baseURL, method, path, body string) roomResponse {
@@ -229,6 +477,41 @@ func readState(t *testing.T, connection *websocket.Conn) roomState {
 		t.Fatalf("unexpected message: %#v", state)
 	}
 	return state
+}
+
+func readChat(t *testing.T, connection *websocket.Conn) chatMessage {
+	t.Helper()
+	_ = connection.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var message chatMessage
+	if err := connection.ReadJSON(&message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Type != "chat" {
+		t.Fatalf("unexpected message: %#v", message)
+	}
+	return message
+}
+
+func readSocketError(t *testing.T, connection *websocket.Conn) errorMessage {
+	t.Helper()
+	_ = connection.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var message errorMessage
+	if err := connection.ReadJSON(&message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Type != "error" {
+		t.Fatalf("unexpected message: %#v", message)
+	}
+	return message
+}
+
+func playerWantsRematch(state roomState, color int) bool {
+	for _, player := range state.Players {
+		if player.Color == color {
+			return player.Rematch
+		}
+	}
+	return false
 }
 
 func writeMove(t *testing.T, connection *websocket.Conn, row, column int) {
