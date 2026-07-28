@@ -83,16 +83,33 @@ export function useRoom(onNotice: (message: string, kind?: "default" | "chat") =
     if (!roomCodePattern.test(code)) return false;
 
     state.roomCode = code;
-    const session = readSession(code);
-    if (session?.token && session.color) {
-      state.token = session.token;
-      state.color = session.color;
+    const tabSession = readTabSession(code);
+    if (tabSession?.token && tabSession.color) {
+      state.token = tabSession.token;
+      state.color = tabSession.color;
       saveSession();
       connect();
       return true;
     }
 
-    await join(code);
+    const persistentSession = readPersistentSession(code);
+    try {
+      await join(code, "好友棋手", false);
+    } catch (freshJoinError) {
+      if (!persistentSession?.token || !persistentSession.color) throw freshJoinError;
+      const credentials = await request<RoomCredentials>(
+        `/api/rooms/${encodeURIComponent(code)}/join`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: "好友棋手",
+            playerToken: persistentSession.token,
+          }),
+        },
+      );
+      setCredentials(credentials);
+      connect();
+    }
     return true;
   }
 
@@ -208,15 +225,22 @@ export function useRoom(onNotice: (message: string, kind?: "default" | "chat") =
   }
 
   function readSession(code: string): { token: string; color: 1 | 2 } | null {
-    const key = `qiyu-room-${code}`;
+    return readTabSession(code) || readPersistentSession(code);
+  }
+
+  function readTabSession(code: string): { token: string; color: 1 | 2 } | null {
     try {
-      const session = JSON.parse(sessionStorage.getItem(key) || "null");
+      const session = JSON.parse(sessionStorage.getItem(`qiyu-room-${code}`) || "null");
       if (session?.token && session?.color) return session;
     } catch {
-      // Fall back to the persistent session below.
+      // A fresh seat can still be requested when tab storage is unavailable.
     }
+    return null;
+  }
+
+  function readPersistentSession(code: string): { token: string; color: 1 | 2 } | null {
     try {
-      return JSON.parse(localStorage.getItem(key) || "null");
+      return JSON.parse(localStorage.getItem(`qiyu-room-${code}`) || "null");
     } catch {
       return null;
     }
