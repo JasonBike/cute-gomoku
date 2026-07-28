@@ -229,6 +229,11 @@ function requestRematch() {
   }
 }
 
+function acceptRematchFromRoom() {
+  gameMinimized.value = false;
+  requestRematch();
+}
+
 watch(
   () => room.state.room,
   (next, previous) => {
@@ -239,6 +244,22 @@ watch(
     const isWaitingForRematch = Boolean(
       next.players.find((player) => player.color === room.state.color)?.rematch,
     );
+    const hadOpponentRematchRequest = Boolean(
+      previous?.players.find((player) => player.color !== room.state.color)?.rematch,
+    );
+    const hasOpponentRematchRequest = Boolean(
+      next.players.find((player) => player.color !== room.state.color)?.rematch,
+    );
+    if (
+      next.status === "finished" &&
+      !hadOpponentRematchRequest &&
+      hasOpponentRematchRequest &&
+      !isWaitingForRematch
+    ) {
+      showNotice("对手邀请你再来一局");
+      document.title = "↻ 好友邀请再来一局｜棋遇";
+      navigator.vibrate?.([80, 50, 80]);
+    }
     if (
       next.status === "finished" &&
       wasWaitingForRematch &&
@@ -307,8 +328,10 @@ onMounted(async () => {
       :players="players"
       :connection="room.state.connection"
       :status="room.state.room?.status || 'waiting'"
+      :my-color="room.state.color"
       @back="requestLeaveRoom"
       @reenter="enterGame"
+      @rematch="acceptRematchFromRoom"
       @share="shareOpen = true"
       @copy="copy(room.state.roomCode, '房间号已复制')"
     />

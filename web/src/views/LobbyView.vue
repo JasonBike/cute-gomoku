@@ -1,23 +1,33 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { PlayerState, RoomStatus } from "@/types/game";
+import type { Color, PlayerState, RoomStatus } from "@/types/game";
 
 const props = defineProps<{
   roomCode: string;
   players: PlayerState[];
   connection: "idle" | "connecting" | "online" | "offline";
   status: RoomStatus;
+  myColor: Color;
 }>();
 
 const emit = defineEmits<{
   back: [];
   reenter: [];
+  rematch: [];
   share: [];
   copy: [];
 }>();
 
 const blackPlayer = computed(() => props.players.find((player) => player.color === 1));
 const whitePlayer = computed(() => props.players.find((player) => player.color === 2));
+const me = computed(() => props.players.find((player) => player.color === props.myColor));
+const opponent = computed(() => props.players.find((player) => player.color !== props.myColor));
+const rematchFromOpponent = computed(
+  () => props.status === "finished" && Boolean(opponent.value?.rematch) && !me.value?.rematch,
+);
+const waitingForRematch = computed(
+  () => props.status === "finished" && Boolean(me.value?.rematch) && !opponent.value?.rematch,
+);
 const title = computed(() => {
   if (props.status === "playing") return "棋局还在继续";
   if (props.status === "finished") return "这一局结束啦";
@@ -67,6 +77,35 @@ const primaryLabel = computed(() => {
       <div v-if="status === 'waiting'" class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></div>
       <div v-else class="lobby-game-status" :class="status">
         <i></i>{{ status === "playing" ? "对局进行中" : "本局已结束" }}
+      </div>
+    </div>
+
+    <div
+      v-if="rematchFromOpponent"
+      class="lobby-rematch-card incoming"
+      role="status"
+      aria-live="assertive"
+    >
+      <div class="rematch-mascot" aria-hidden="true">
+        <i class="rematch-ear left"></i><i class="rematch-ear right"></i>
+        <b>• ᴗ •</b><span>↻</span>
+      </div>
+      <div class="rematch-copy">
+        <small>好友发来新挑战</small>
+        <strong>对手想和你再来一局！</strong>
+        <p>同意后会清空棋盘，由黑棋先下。</p>
+      </div>
+      <button type="button" @click="emit('rematch')">同意，再来一局</button>
+    </div>
+    <div v-else-if="waitingForRematch" class="lobby-rematch-card waiting" role="status">
+      <div class="rematch-mascot" aria-hidden="true">
+        <i class="rematch-ear left"></i><i class="rematch-ear right"></i>
+        <b>• ◡ •</b><span>…</span>
+      </div>
+      <div class="rematch-copy">
+        <small>申请已经送达</small>
+        <strong>等待好友同意再来一局</strong>
+        <p>好友还在房间里，确认后会自动开局。</p>
       </div>
     </div>
 

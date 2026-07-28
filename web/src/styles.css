@@ -1111,7 +1111,9 @@ button {
   .toast.chat-toast.show,
   .chat-toast-avatar,
   .chat-toast-sparkle,
-  .chat-toast-progress {
+  .chat-toast-progress,
+  .lobby-rematch-card.incoming,
+  .lobby-rematch-card.incoming::after {
     animation: none;
   }
 }
@@ -1436,6 +1438,178 @@ button {
 .lobby-game-status.finished {
   background: #fff0bd;
   color: #7b5a27;
+}
+
+.lobby-rematch-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin: 14px 20px 0;
+  padding: 14px;
+  overflow: hidden;
+  color: #70482e;
+  background:
+    radial-gradient(circle at 92% 12%, rgb(255 255 255 / 76%) 0 26px, transparent 27px),
+    linear-gradient(135deg, #fff2c7, #ffe2c7);
+  border: 2px solid #ffc985;
+  border-radius: 22px;
+  box-shadow: 0 10px 24px rgb(210 126 65 / 16%);
+}
+
+.lobby-rematch-card.incoming {
+  animation: rematch-card-arrive 520ms cubic-bezier(0.18, 1.35, 0.35, 1) both;
+}
+
+.lobby-rematch-card.incoming::after {
+  position: absolute;
+  top: 8px;
+  right: 13px;
+  color: #f0a55f;
+  font-size: 18px;
+  content: "✦";
+  animation: rematch-sparkle 1.4s ease-in-out infinite;
+}
+
+.lobby-rematch-card.waiting {
+  background: linear-gradient(135deg, #f1f8de, #e8f3dc);
+  border-color: #bcd89b;
+  box-shadow: 0 10px 24px rgb(115 153 85 / 13%);
+}
+
+.rematch-mascot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 52px;
+  color: #8d5838;
+  background: #fffaf0;
+  border: 2px solid #f2bd83;
+  border-radius: 45% 45% 48% 48%;
+}
+
+.rematch-ear {
+  position: absolute;
+  top: -8px;
+  width: 17px;
+  height: 17px;
+  background: #fffaf0;
+  border: 2px solid #f2bd83;
+  transform: rotate(45deg);
+}
+
+.rematch-ear.left {
+  left: 6px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.rematch-ear.right {
+  right: 6px;
+  border-left: 0;
+  border-bottom: 0;
+}
+
+.rematch-mascot b {
+  position: relative;
+  z-index: 1;
+  font-size: 14px;
+}
+
+.rematch-mascot span {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  color: white;
+  font-weight: 900;
+  font-size: 14px;
+  background: #ec9d5f;
+  border: 2px solid #fffaf0;
+  border-radius: 50%;
+}
+
+.lobby-rematch-card.waiting .rematch-mascot {
+  border-color: #b9d49d;
+}
+
+.lobby-rematch-card.waiting .rematch-mascot span {
+  background: #8db66b;
+}
+
+.rematch-copy {
+  min-width: 0;
+}
+
+.rematch-copy small,
+.rematch-copy strong,
+.rematch-copy p {
+  display: block;
+}
+
+.rematch-copy small {
+  margin-bottom: 2px;
+  color: #bc7444;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.rematch-copy strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.rematch-copy p {
+  margin: 3px 0 0;
+  color: #9b745c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.lobby-rematch-card > button {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 11px 14px;
+  color: white;
+  font-weight: 900;
+  font-size: 14px;
+  background: linear-gradient(135deg, #ef9c5c, #e9864d);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 5px 12px rgb(219 123 67 / 22%);
+}
+
+.lobby-rematch-card > button:active {
+  transform: scale(0.98);
+}
+
+@keyframes rematch-card-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes rematch-sparkle {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.8) rotate(-8deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(8deg);
+  }
 }
 
 .room-share-card {
