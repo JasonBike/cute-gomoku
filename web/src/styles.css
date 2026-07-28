@@ -1,3 +1,4 @@
+/* Global visual system for the Vue application. */
 :root {
   --cream: #fff8ea;
   --paper: #fffdf7;
@@ -1444,8 +1445,9 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  height: 54px;
   margin-bottom: 10px;
+  border: 2px solid transparent;
   border-radius: 12px;
   background: #fff0cf;
   font-size: 10px;
@@ -1461,7 +1463,6 @@ button {
 }
 
 .turn-banner.my-turn {
-  min-height: 54px;
   border: 2px solid var(--ink);
   background: var(--orange);
   box-shadow: 4px 5px 0 var(--ink);
@@ -1492,7 +1493,7 @@ button {
 }
 
 .turn-banner.opponent-turn {
-  border: 1.5px dashed #d8c7af;
+  border: 2px dashed #d8c7af;
   background: #f2eadf;
   color: var(--muted);
 }

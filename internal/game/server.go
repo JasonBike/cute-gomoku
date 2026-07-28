@@ -7,11 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +58,7 @@ type room struct {
 }
 
 type Server struct {
-	webDir   string
+	webFS    fs.FS
 	roomsMu  sync.RWMutex
 	rooms    map[string]*room
 	upgrader websocket.Upgrader
@@ -106,10 +105,10 @@ type errorMessage struct {
 	Message string `json:"message"`
 }
 
-func NewServer(webDir string) http.Handler {
+func NewServer(webFS fs.FS) http.Handler {
 	server := &Server{
-		webDir: webDir,
-		rooms:  make(map[string]*room),
+		webFS: webFS,
+		rooms: make(map[string]*room),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -131,8 +130,7 @@ func NewServer(webDir string) http.Handler {
 	mux.HandleFunc("POST /api/rooms", server.createRoom)
 	mux.HandleFunc("POST /api/rooms/{code}/join", server.joinRoom)
 	mux.HandleFunc("GET /ws", server.serveWebSocket)
-	mux.HandleFunc("GET /styles.css", server.serveAsset("styles.css", "text/css; charset=utf-8"))
-	mux.HandleFunc("GET /app.js", server.serveAsset("app.js", "application/javascript; charset=utf-8"))
+	mux.Handle("GET /assets/", immutableAssets(http.FileServer(http.FS(webFS))))
 	mux.HandleFunc("GET /", server.serveIndex)
 	return securityHeaders(mux)
 }
@@ -142,6 +140,13 @@ func securityHeaders(next http.Handler) http.Handler {
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		response.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:")
+		next.ServeHTTP(response, request)
+	})
+}
+
+func immutableAssets(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		next.ServeHTTP(response, request)
 	})
 }
@@ -158,15 +163,8 @@ func (server *Server) serveIndex(response http.ResponseWriter, request *http.Req
 	server.serveFile(response, request, "index.html", "text/html; charset=utf-8")
 }
 
-func (server *Server) serveAsset(name, contentType string) http.HandlerFunc {
-	return func(response http.ResponseWriter, request *http.Request) {
-		server.serveFile(response, request, name, contentType)
-	}
-}
-
 func (server *Server) serveFile(response http.ResponseWriter, request *http.Request, name, contentType string) {
-	path := filepath.Join(server.webDir, name)
-	content, err := os.ReadFile(path)
+	content, err := fs.ReadFile(server.webFS, name)
 	if err != nil {
 		http.Error(response, "页面资源不存在", http.StatusNotFound)
 		return

@@ -1,2 +1,4 @@
 .DS_Store
 cute-gomoku
+node_modules/
+release/

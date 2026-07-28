@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestFindWinningLineRequiresFive(t *testing.T) {
 }
 
 func TestCreateAndJoinRoom(t *testing.T) {
-	handler := NewServer("../..")
+	handler := NewServer(os.DirFS("../.."))
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"name":"小桃子"}`))
 	createResponse := httptest.NewRecorder()
@@ -107,7 +108,7 @@ func TestCreateAndJoinRoom(t *testing.T) {
 }
 
 func TestRoomRejectsThirdPlayer(t *testing.T) {
-	handler := NewServer("../..")
+	handler := NewServer(os.DirFS("../.."))
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(
 		createResponse,
@@ -135,7 +136,7 @@ func TestRoomRejectsThirdPlayer(t *testing.T) {
 }
 
 func TestWebSocketGameFlow(t *testing.T) {
-	testServer := httptest.NewServer(NewServer("../.."))
+	testServer := httptest.NewServer(NewServer(os.DirFS("../..")))
 	defer testServer.Close()
 
 	creator := requestRoom(t, testServer.URL, http.MethodPost, "/api/rooms", `{"name":"黑棋"}`)
