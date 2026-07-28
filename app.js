@@ -244,8 +244,11 @@ async function joinOnlineRoom(code) {
     resetLobby();
     showView("room");
     connectRoomSocket();
+    return true;
   } catch (error) {
     showToast(error.message);
+    document.querySelector("#lobbyMessage").textContent = error.message;
+    return false;
   }
 }
 
@@ -839,7 +842,11 @@ function restoreSharedRoom() {
   document.querySelector("#roomCodeInput").value = code;
   const session = readRoomSession(code);
   if (!session?.token) {
-    openBackdrop(joinBackdrop);
+    updateRoomCode(code);
+    resetLobby();
+    document.querySelector("#lobbyMessage").textContent = "正在加入好友房间…";
+    showView("room");
+    joinOnlineRoom(code);
     return;
   }
 
