@@ -24,11 +24,12 @@ export function useRoom(onNotice: (message: string, kind?: "default" | "chat") =
   const opponent = computed(() =>
     state.room?.players.find((player) => player.color !== state.color),
   );
-  const inviteURL = computed(() =>
-    state.roomCode
-      ? `${window.location.origin}/?room=${encodeURIComponent(state.roomCode)}`
-      : `${window.location.origin}/`,
-  );
+  const inviteURL = computed(() => {
+    const url = new URL(window.location.href);
+    if (state.roomCode) url.searchParams.set("room", state.roomCode);
+    else url.searchParams.delete("room");
+    return url.toString();
+  });
 
   async function request<T>(path: string, options: RequestInit): Promise<T> {
     const response = await fetch(path, {
