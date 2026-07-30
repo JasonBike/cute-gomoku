@@ -57,7 +57,7 @@ const primaryLabel = computed(() => {
     </header>
 
     <div class="lobby-status">
-      <span class="section-kicker">ROOM {{ roomCode || "------" }}</span>
+      <span class="section-kicker">ROOM {{ roomCode || "--" }}</span>
       <h2>{{ title }}</h2>
       <p>{{ message }}</p>
       <div class="lobby-players">
@@ -110,7 +110,7 @@ const primaryLabel = computed(() => {
     </div>
 
     <div class="room-share-card">
-      <div><span>房间号</span><strong>{{ roomCode || "------" }}</strong></div>
+      <div><span>房间号</span><strong>{{ roomCode || "--" }}</strong></div>
       <button type="button" @click="emit('copy')">复制</button>
     </div>
     <button

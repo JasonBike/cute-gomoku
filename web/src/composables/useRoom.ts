@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, reactive } from "vue";
 import type { ChatMessage, RoomCredentials, RoomState, ServerError } from "@/types/game";
 
-const roomCodePattern = /^[A-HJ-NP-Z2-9]{6}$/;
+const roomCodePattern = /^\d{2}$/;
 
 export function useRoom(onNotice: (message: string, kind?: "default" | "chat") => void) {
   const state = reactive({
@@ -64,7 +64,7 @@ export function useRoom(onNotice: (message: string, kind?: "default" | "chat") =
 
   async function join(code: string, name = "好友棋手", resumeExisting = true) {
     const normalized = code.trim().toUpperCase();
-    if (!roomCodePattern.test(normalized)) throw new Error("请输入正确的六位房间号");
+    if (!roomCodePattern.test(normalized)) throw new Error("请输入正确的两位数字房间号");
     const session = resumeExisting ? readSession(normalized) : null;
     const credentials = await request<RoomCredentials>(
       `/api/rooms/${encodeURIComponent(normalized)}/join`,

@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	boardSize      = 15
-	roomCodeLength = 6
-	roomAlphabet   = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	boardSize        = 15
+	roomCodeLength   = 2
+	roomCodeCapacity = 100
+	roomCodeAlphabet = "0123456789"
+	identityAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 )
 
 type coordinate struct {
@@ -284,11 +286,6 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 		return
 	}
 
-	code, err := server.newRoomCode()
-	if err != nil {
-		writeAPIError(response, http.StatusInternalServerError, "code_generation_failed", "暂时无法创建房间")
-		return
-	}
 	token, err := newToken()
 	if err != nil {
 		writeAPIError(response, http.StatusInternalServerError, "token_generation_failed", "暂时无法创建房间")
@@ -297,7 +294,6 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 
 	now := time.Now()
 	gameRoom := &room{
-		Code:      code,
 		Players:   make(map[string]*player),
 		Turn:      1,
 		Status:    "waiting",
@@ -311,9 +307,11 @@ func (server *Server) createRoom(response http.ResponseWriter, request *http.Req
 		Color:  1,
 	}
 
-	server.roomsMu.Lock()
-	server.rooms[code] = gameRoom
-	server.roomsMu.Unlock()
+	code, err := server.addRoom(gameRoom)
+	if err != nil {
+		writeAPIError(response, http.StatusInternalServerError, "code_generation_failed", "暂时无法创建房间")
+		return
+	}
 
 	writeJSON(response, http.StatusCreated, roomResponse{RoomCode: code, PlayerToken: token, Color: 1})
 }
@@ -783,16 +781,31 @@ func (server *Server) updateRoomPlayerNames(userID, nickname string) {
 	}
 }
 
-func (server *Server) newRoomCode() (string, error) {
+func (server *Server) addRoom(gameRoom *room) (string, error) {
+	server.roomsMu.Lock()
+	defer server.roomsMu.Unlock()
+
 	for attempt := 0; attempt < 20; attempt++ {
-		code, err := randomString(roomCodeLength, roomAlphabet)
+		code, err := randomString(roomCodeLength, roomCodeAlphabet)
 		if err != nil {
 			return "", err
 		}
-		if server.getRoom(code) == nil {
+		if _, exists := server.rooms[code]; !exists {
+			gameRoom.Code = code
+			server.rooms[code] = gameRoom
 			return code, nil
 		}
 	}
+
+	for value := 0; value < roomCodeCapacity; value++ {
+		code := fmt.Sprintf("%02d", value)
+		if _, exists := server.rooms[code]; !exists {
+			gameRoom.Code = code
+			server.rooms[code] = gameRoom
+			return code, nil
+		}
+	}
+
 	return "", errors.New("unable to allocate unique room code")
 }
 

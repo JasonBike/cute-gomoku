@@ -189,7 +189,7 @@ func (store *identityStore) getOrCreateSession(response http.ResponseWriter, req
 }
 
 func (store *identityStore) createUserLocked(now time.Time) (identityUser, string, error) {
-	userCode, err := randomString(8, roomAlphabet)
+	userCode, err := randomString(8, identityAlphabet)
 	if err != nil {
 		return identityUser{}, "", fmt.Errorf("generate user id: %w", err)
 	}

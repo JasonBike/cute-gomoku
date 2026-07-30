@@ -103,7 +103,8 @@ func TestCreateAndJoinRoom(t *testing.T) {
 	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
-	if len(created.RoomCode) != roomCodeLength {
+	if len(created.RoomCode) != roomCodeLength ||
+		strings.Trim(created.RoomCode, roomCodeAlphabet) != "" {
 		t.Fatalf("unexpected room code %q", created.RoomCode)
 	}
 	if created.PlayerToken == "" || created.Color != 1 {
@@ -128,6 +129,33 @@ func TestCreateAndJoinRoom(t *testing.T) {
 	}
 	if joined.Color != 2 || joined.PlayerToken == created.PlayerToken {
 		t.Fatalf("unexpected join response: %#v", joined)
+	}
+}
+
+func TestAddRoomAllocatesAllTwoDigitCodes(t *testing.T) {
+	server := &Server{rooms: make(map[string]*room)}
+	seen := make(map[string]struct{}, roomCodeCapacity)
+
+	for range roomCodeCapacity {
+		gameRoom := &room{}
+		code, err := server.addRoom(gameRoom)
+		if err != nil {
+			t.Fatalf("allocate room code: %v", err)
+		}
+		if len(code) != roomCodeLength || strings.Trim(code, roomCodeAlphabet) != "" {
+			t.Fatalf("unexpected room code %q", code)
+		}
+		if gameRoom.Code != code {
+			t.Fatalf("room code was not assigned: got %q, want %q", gameRoom.Code, code)
+		}
+		if _, exists := seen[code]; exists {
+			t.Fatalf("duplicate room code %q", code)
+		}
+		seen[code] = struct{}{}
+	}
+
+	if _, err := server.addRoom(&room{}); err == nil {
+		t.Fatal("expected allocation to fail when all two-digit codes are occupied")
 	}
 }
 

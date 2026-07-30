@@ -406,10 +406,17 @@ onMounted(async () => {
       <div class="join-sheet-icon">#</div>
       <span class="section-kicker">JOIN A ROOM</span>
       <h2>输入好友房间号</h2>
-      <p>分享链接会自动加入，手动加入时在这里输入六位房间号。</p>
+      <p>分享链接会自动加入，手动加入时在这里输入两位数字房间号。</p>
       <label class="room-input">
         <span>房间号</span>
-        <input v-model.trim="roomInput" maxlength="6" placeholder="例如 7K2M8P" @keyup.enter="joinRoom" />
+        <input
+          v-model.trim="roomInput"
+          maxlength="2"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          placeholder="例如 07"
+          @keyup.enter="joinRoom"
+        />
       </label>
       <button class="share-button" type="button" @click="joinRoom">加入房间</button>
     </section>
